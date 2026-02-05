@@ -12,8 +12,33 @@ const hashPassword = (password) => {
 };
 
 router.get('/get', (req, res) => {
-    console.log('Récup des user');
+    User.getAll().then(users => {
+        const usersSafe = users.map(user => {
+            const userJson = user.toJSON();
+            delete userJson.passwordHash;
+            return userJson;
+        });
+        res.json({ users: usersSafe });
+    }).catch(err => {
+        console.error(err);
+        res.status(500).json({ error: 'internal server error' });
+    });
     res.status(501).end();
+});
+
+router.get('/get/:id', (req, res) => {
+    const userId = req.params.id;
+    User.getById(userId).then(user => {
+        if (!user) {
+            return res.status(404).json({ error: 'user not found' });
+        }
+        const userSafe = user.toJSON();
+        delete userSafe.passwordHash;
+        res.json({ userSafe });
+    }).catch(err => {
+        console.error(err);
+        res.status(500).json({ error: 'internal server error' });
+    });
 });
 
 router.post('/create', async (req, res) => {
@@ -49,13 +74,51 @@ router.post('/create', async (req, res) => {
     }
 });
 
-router.put('/put', (req, res) => {
-    console.log('update des user');
+router.put('/put/:id', (req, res) => {
+    const userId = req.params.id;
+    const { name, email, username, role, password } = req.body;
+
+    const updates = Object.fromEntries(
+        Object.entries({ name, email, username, role })
+            .filter(([_, value]) => value !== undefined)
+    );
+
+    if (password) {
+        updates.passwordHash = hashPassword(password);
+    }
+
+    updates.updatedAt = new Date();
+
+    try {
+        const user = await User.findByPk(userId);
+        if (!user) {
+            return res.status(404).json({ error: 'user not found' });
+        }
+
+        await user.update(updates);
+
+        const userSafe = user.toJSON();
+        delete userSafe.passwordHash;
+        return res.json({ user: userSafe });
+    } catch (err) {
+        if (err instanceof Sequelize.UniqueConstraintError || err.name === 'SequelizeUniqueConstraintError') {
+            const field = (err.errors && err.errors[0] && err.errors[0].path) || 'field';
+            return res.status(409).json({ error: `${field} already in use` });
+        }
+        console.error(err);
+        return res.status(500).json({ error: 'internal server error' });
+    }
     res.status(501).end();
 });
 
-router.delete('/delete', (req, res) => {
-    console.log('suppr des user');
+router.delete('/delete/:id', (req, res) => {
+    const userId = req.params.id;
+    User.destroy({ where: { id: userId } }).then(deleted => {
+        if (deleted === 0) {
+            return res.status(404).json({ error: 'user not found' });
+        }
+        res.json({ message: 'user deleted successfully' });
+    }
     res.status(501).end();
 });
 
